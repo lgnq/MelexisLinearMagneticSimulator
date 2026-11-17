@@ -1,0 +1,25 @@
+{
+  "name": "Melexis FAE 直线位移磁场仿真工具",
+  "short_name": "MLX MagSim",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "description": "基于 Magpylib 的迈来芯 (Melexis) Triaxis 直线位移传感器磁场与解调角度仿真 PWA 工具",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='38' fill='%23005596'/%3E%3Cpath d='M58 48v67a38 38 0 0 0 76 0V48h-23v67a15 15 0 0 1-30 0V48H58z' fill='%23ffffff'/%3E%3Crect x='58' y='48' width='23' height='19' fill='%23ef4444'/%3E%3Crect x='111' y='48' width='23' height='19' fill='%233b82f6'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='102' fill='%23005596'/%3E%3Cpath d='M154 128v179a102 102 0 0 0 204 0V128h-61v179a41 41 0 0 1-82 0V128h-61z' fill='%23ffffff'/%3E%3Crect x='154' y='128' width='61' height='51' fill='%23ef4444'/%3E%3Crect x='297' y='128' width='61' height='51' fill='%233b82f6'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
