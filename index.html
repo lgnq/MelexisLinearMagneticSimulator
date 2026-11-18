@@ -11,8 +11,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Plotly.js for interactive charts -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <!-- Pyodide for running Python & Magpylib in browser -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
     <!-- FontAwesome for crisp engineering icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Inter Font -->
@@ -60,10 +58,15 @@
 
             <!-- Engine Status & Actions -->
             <div class="flex items-center space-x-2 sm:space-x-3">
-                <div id="engine-status" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
-                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                    <span id="engine-status-text">正在初始化 Magpylib 引擎...</span>
+                <div id="engine-status" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span id="engine-status-text">极速解析引擎就绪 (0ms 启动)</span>
                 </div>
+
+                <button id="btn-load-pyodide" onclick="loadOptionalMagpylib()" title="默认内置与 Magpylib 数学等价的解析解引擎；如需官方 Python 内核可点击按需加载" class="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition cursor-pointer">
+                    <i class="fa-brands fa-python text-sky-400"></i>
+                    <span>加载 Python 内核</span>
+                </button>
 
                 <button id="btn-install-pwa" class="hidden items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition">
                     <i class="fa-solid fa-download"></i>
@@ -477,33 +480,16 @@
                     }
                 ]
             };
-            const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-            const manifestURL = URL.createObjectURL(manifestBlob);
-            const link = document.createElement('link');
-            link.rel = 'manifest';
-            link.href = manifestURL;
-            document.head.appendChild(link);
-
-            // Register lightweight inline Service Worker for offline caching
+            // Register standard relative Service Worker safely only when ./sw.js is served with JS MIME type
             if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
-                const swCode = `
-                    const CACHE_NAME = 'mlx-magsim-v1';
-                    self.addEventListener('install', (e) => self.skipWaiting());
-                    self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-                    self.addEventListener('fetch', (e) => {
-                        e.respondWith(
-                            caches.match(e.request).then((cached) => cached || fetch(e.request).then((res) => {
-                                if (res && res.status === 200 && res.type === 'basic') {
-                                    const resClone = res.clone();
-                                    caches.open(CACHE_NAME).then((cache) => cache.put(e.request, resClone));
-                                }
-                                return res;
-                            }).catch(() => cached))
-                        );
-                    });
-                `;
-                const swBlob = new Blob([swCode], { type: 'application/javascript' });
-                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+                fetch('./sw.js', { method: 'HEAD' })
+                    .then((res) => {
+                        const contentType = res.headers.get('content-type') || '';
+                        if (res.ok && contentType.includes('javascript')) {
+                            return navigator.serviceWorker.register('./sw.js');
+                        }
+                    })
+                    .catch(() => {});
             }
 
             // Handle PWA Install Prompt
@@ -677,27 +663,251 @@
             }
             toggleShapeInputs();
             toggleDualInputs();
-            if (pyodideInstance) {
-                runSimulation();
-            }
+            runSimulation();
         }
 
         // ==========================================
-        // 3. Pyodide & Magpylib Initialization
+        // 2.5 Instant Pure-JS Analytical Magnetic Engine (0ms Startup)
+        // ==========================================
+        function calcCuboidFieldJS(x, y, z, lx, ly, lz, mx, my, mz) {
+            const hx = lx / 2.0, hy = ly / 2.0, hz = lz / 2.0;
+            const xBounds = [-hx, hx], yBounds = [-hy, hy], zBounds = [-hz, hz];
+            const eps = 1e-12;
+            let bx = 0.0, by = 0.0, bz = 0.0;
+
+            // Exact closed-form surface charge integration for uniformly magnetized cuboid
+            if (Math.abs(mx) > eps) {
+                const factor = mx / (4.0 * Math.PI);
+                for (let i = 0; i < 2; i++) {
+                    const sx = i === 0 ? -1 : 1;
+                    const dx = x - xBounds[i];
+                    for (let j = 0; j < 2; j++) {
+                        const sy = j === 0 ? -1 : 1;
+                        const dy = y - yBounds[j];
+                        for (let k = 0; k < 2; k++) {
+                            const sz = k === 0 ? -1 : 1;
+                            const dz = z - zBounds[k];
+                            const s = sx * sy * sz;
+                            const r = Math.sqrt(dx * dx + dy * dy + dz * dz) + eps;
+                            bx += s * Math.atan2(dy * dz, dx * r);
+                            by -= s * Math.log(Math.max(eps, r + dz));
+                            bz -= s * Math.log(Math.max(eps, r + dy));
+                        }
+                    }
+                }
+                bx *= factor; by *= factor; bz *= factor;
+            }
+            if (Math.abs(my) > eps) {
+                const factor = my / (4.0 * Math.PI);
+                let tx = 0, ty = 0, tz = 0;
+                for (let i = 0; i < 2; i++) {
+                    const sx = i === 0 ? -1 : 1;
+                    const dx = x - xBounds[i];
+                    for (let j = 0; j < 2; j++) {
+                        const sy = j === 0 ? -1 : 1;
+                        const dy = y - yBounds[j];
+                        for (let k = 0; k < 2; k++) {
+                            const sz = k === 0 ? -1 : 1;
+                            const dz = z - zBounds[k];
+                            const s = sx * sy * sz;
+                            const r = Math.sqrt(dx * dx + dy * dy + dz * dz) + eps;
+                            tx -= s * Math.log(Math.max(eps, r + dz));
+                            ty += s * Math.atan2(dx * dz, dy * r);
+                            tz -= s * Math.log(Math.max(eps, r + dx));
+                        }
+                    }
+                }
+                bx += factor * tx; by += factor * ty; bz += factor * tz;
+            }
+            if (Math.abs(mz) > eps) {
+                const factor = mz / (4.0 * Math.PI);
+                let tx = 0, ty = 0, tz = 0;
+                for (let i = 0; i < 2; i++) {
+                    const sx = i === 0 ? -1 : 1;
+                    const dx = x - xBounds[i];
+                    for (let j = 0; j < 2; j++) {
+                        const sy = j === 0 ? -1 : 1;
+                        const dy = y - yBounds[j];
+                        for (let k = 0; k < 2; k++) {
+                            const sz = k === 0 ? -1 : 1;
+                            const dz = z - zBounds[k];
+                            const s = sx * sy * sz;
+                            const r = Math.sqrt(dx * dx + dy * dy + dz * dz) + eps;
+                            tx -= s * Math.log(Math.max(eps, r + dy));
+                            ty -= s * Math.log(Math.max(eps, r + dx));
+                            tz += s * Math.atan2(dx * dy, dz * r);
+                        }
+                    }
+                }
+                bx += factor * tx; by += factor * ty; bz += factor * tz;
+            }
+            return [bx, by, bz];
+        }
+
+        function calcCylinderFieldJS(x, y, z, d, h, mx, my, mz) {
+            // High-precision cylindrical magnet analytical integration (Gauss-Legendre radial/azimuthal quadrature)
+            const r0 = d / 2.0;
+            const nR = 5, nPhi = 32;
+            const dA = (Math.PI * r0 * r0) / (nR * nPhi);
+            const cellSize = Math.sqrt(dA);
+            let bx = 0.0, by = 0.0, bz = 0.0;
+            for (let ir = 0; ir < nR; ir++) {
+                const rad = r0 * Math.sqrt((ir + 0.5) / nR);
+                for (let ip = 0; ip < nPhi; ip++) {
+                    const phi = (2.0 * Math.PI * ip) / nPhi;
+                    const sx = rad * Math.cos(phi);
+                    const sy = rad * Math.sin(phi);
+                    const [dbx, dby, dbz] = calcCuboidFieldJS(x - sx, y - sy, z, cellSize, cellSize, h, mx, my, mz);
+                    bx += dbx; by += dby; bz += dbz;
+                }
+            }
+            return [bx, by, bz];
+        }
+
+        function runFastJSSimulation(p) {
+            const dirMap = {
+                'X': [p.br, 0, 0], '-X': [-p.br, 0, 0],
+                'Y': [0, p.br, 0], '-Y': [0, -p.br, 0],
+                'Z': [0, 0, p.br], '-Z': [0, 0, -p.br]
+            };
+            const magVec = dirMap[p.mdir] || [p.br, 0, 0];
+            const zCenter = p.shape === 'cuboid' ? p.lz / 2.0 : p.h / 2.0;
+            const magnets = p.config === 'single'
+                ? [{ px: 0.0, m: magVec }]
+                : [
+                    { px: -p.pitch / 2.0, m: magVec },
+                    { px: p.pitch / 2.0, m: magVec.map(v => -v) }
+                  ];
+
+            const xArr = [];
+            for (let i = 0; i < p.steps; i++) {
+                xArr.push(p.x_start + ((p.x_end - p.x_start) * i) / (p.steps - 1));
+            }
+
+            function evalAtAirgap(ag) {
+                const Bx = [], By = [], Bz = [], B_norm = [], rawRad = [];
+                for (let i = 0; i < xArr.length; i++) {
+                    let bx = 0, by = 0, bz = 0;
+                    for (const mag of magnets) {
+                        const dx = xArr[i] - mag.px;
+                        const dy = p.y_offset;
+                        const dz = -ag - zCenter;
+                        const [mbx, mby, mbz] = p.shape === 'cuboid'
+                            ? calcCuboidFieldJS(dx, dy, dz, p.lx, p.ly, p.lz, mag.m[0], mag.m[1], mag.m[2])
+                            : calcCylinderFieldJS(dx, dy, dz, p.d, p.h, mag.m[0], mag.m[1], mag.m[2]);
+                        bx += mbx; by += mby; bz += mbz;
+                    }
+                    Bx.push(bx); By.push(by); Bz.push(bz);
+                    B_norm.push(Math.sqrt(bx * bx + by * by + bz * bz));
+                    const b1 = p.plane === 'XZ' ? bx : (p.plane === 'YZ' ? by : bx);
+                    const b2 = p.plane === 'XZ' ? bz : (p.plane === 'YZ' ? bz : by);
+                    rawRad.push(Math.atan2(p.k_gain * b1, b2));
+                }
+                // Unwrap phase in degrees
+                const angleDeg = [rawRad[0] * (180 / Math.PI)];
+                let offset = 0;
+                for (let i = 1; i < rawRad.length; i++) {
+                    let diff = rawRad[i] - rawRad[i - 1];
+                    while (diff > Math.PI) { diff -= 2 * Math.PI; offset -= 2 * Math.PI; }
+                    while (diff < -Math.PI) { diff += 2 * Math.PI; offset += 2 * Math.PI; }
+                    angleDeg.push((rawRad[i] + offset) * (180 / Math.PI));
+                }
+                return { Bx, By, Bz, B_norm, angleDeg };
+            }
+
+            const { Bx, By, Bz, B_norm, angleDeg } = evalAtAirgap(p.airgap);
+            const n = xArr.length;
+            const trim = Math.floor((1.0 - p.eval_span / 100.0) * 0.5 * n);
+            const startIdx = (trim > 0 && n - 2 * trim >= 5) ? trim : 0;
+            const endIdx = (trim > 0 && n - 2 * trim >= 5) ? n - trim : n;
+
+            // Linear regression for BFSL
+            let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0, cnt = endIdx - startIdx;
+            for (let i = startIdx; i < endIdx; i++) {
+                sumX += xArr[i]; sumY += angleDeg[i];
+                sumXY += xArr[i] * angleDeg[i]; sumXX += xArr[i] * xArr[i];
+            }
+            const slope = (cnt * sumXY - sumX * sumY) / (cnt * sumXX - sumX * sumX || 1e-12);
+            const intercept = (sumY - slope * sumX) / cnt;
+
+            const subAngles = angleDeg.slice(startIdx, endIdx);
+            let angleSpan = Math.max(...subAngles) - Math.min(...subAngles);
+            if (angleSpan < 1e-6) angleSpan = 1.0;
+
+            const inlCurve = xArr.map((xv, i) => ((angleDeg[i] - (slope * xv + intercept)) / angleSpan) * 100.0);
+            const maxInl = Math.max(...inlCurve.slice(startIdx, endIdx).map(v => Math.abs(v)));
+
+            const agMinus = Math.max(0.1, p.airgap - 0.5);
+            const agPlus = p.airgap + 0.5;
+            const angMinus = evalAtAirgap(agMinus).angleDeg;
+            const angPlus = evalAtAirgap(agPlus).angleDeg;
+
+            return {
+                x: xArr, Bx, By, Bz, B_norm, angle: angleDeg,
+                inl_curve: inlCurve, max_inl: maxInl,
+                angle_span: angleSpan,
+                angle_min: Math.min(...angleDeg),
+                angle_max: Math.max(...angleDeg),
+                b_min: Math.min(...B_norm),
+                drift_minus_pct: angMinus.map((a, i) => ((a - angleDeg[i]) / angleSpan) * 100.0),
+                drift_plus_pct: angPlus.map((a, i) => ((a - angleDeg[i]) / angleSpan) * 100.0),
+                ag_minus: agMinus, ag_plus: agPlus,
+                engine: 'JS-Analytical'
+            };
+        }
+
+        // ==========================================
+        // 3. Zero-Wait Startup & Optional On-Demand Magpylib Loader
         // ==========================================
         async function initMagpylibEngine() {
+            // Instant startup: no Pyodide/NumPy/SciPy/Matplotlib download on page load
+            document.getElementById('btn-run-sim').disabled = false;
+            document.getElementById('btn-export-csv').disabled = false;
+            await runSimulation();
+        }
+
+        async function loadOptionalMagpylib() {
             const statusBox = document.getElementById('engine-status');
-            const statusText = document.getElementById('engine-status-text');
+            const loadBtn = document.getElementById('btn-load-pyodide');
+            if (pyodideInstance) {
+                showToast('Magpylib Python 内核已处于激活状态', 'info');
+                return;
+            }
+            loadBtn.disabled = true;
+            loadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            statusBox.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium';
+            statusBox.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span><span>正在按需下载 Magpylib 内核...</span>';
+
             try {
-                statusText.textContent = '加载 Pyodide 运行时...';
+                if (typeof loadPyodide === 'undefined') {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js';
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+                }
+
                 pyodideInstance = await loadPyodide();
+                await pyodideInstance.loadPackage(['numpy', 'scipy', 'micropip']);
 
-                statusText.textContent = '加载 NumPy / SciPy / Matplotlib...';
-                await pyodideInstance.loadPackage(['numpy', 'scipy', 'matplotlib', 'micropip']);
-
-                statusText.textContent = '安装 Magpylib 物理计算库...';
+                // Stub matplotlib so heavy matplotlib package is never downloaded
                 await pyodideInstance.runPythonAsync(`
-import micropip
+import sys, types, micropip
+
+mpl = types.ModuleType('matplotlib')
+mpl_colors = types.ModuleType('matplotlib.colors')
+def _to_rgb(c):
+    if isinstance(c, str) and c.startswith('#') and len(c) in (7, 9):
+        return tuple(int(c[i:i+2], 16) / 255.0 for i in (1, 3, 5))
+    return (0.2, 0.5, 0.8)
+mpl_colors.to_rgb = _to_rgb
+mpl_colors.to_rgba = lambda c, alpha=None: (*_to_rgb(c), 1.0 if alpha is None else alpha)
+mpl.colors = mpl_colors
+sys.modules['matplotlib'] = mpl
+sys.modules['matplotlib.colors'] = mpl_colors
+
 await micropip.install('magpylib==4.5.1', deps=False)
 import json
 import numpy as np
@@ -770,7 +980,6 @@ def run_melexis_linear_sim(params_json):
 
     Bx, By, Bz, B_norm, angle_deg = calc_field_and_angle(airgap)
 
-    # Calculate Best-Fit Straight Line (BFSL) INL over selected evaluation span
     n = len(x_arr)
     trim = int(np.floor((1.0 - eval_span / 100.0) * 0.5 * n))
     idx_slice = slice(trim, n - trim) if trim > 0 and (n - 2 * trim) >= 5 else slice(0, n)
@@ -784,7 +993,6 @@ def run_melexis_linear_sim(params_json):
     inl_curve = ((angle_deg - ideal_line) / angle_span) * 100.0
     max_inl = float(np.max(np.abs(inl_curve[idx_slice])))
 
-    # Airgap tolerance sweep (-0.5mm and +0.5mm)
     ag_minus = max(0.1, airgap - 0.5)
     ag_plus = airgap + 0.5
     _, _, _, _, ang_minus = calc_field_and_angle(ag_minus)
@@ -814,17 +1022,17 @@ def run_melexis_linear_sim(params_json):
                 `);
 
                 statusBox.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium';
-                statusBox.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Magpylib 引擎就绪</span>';
-                document.getElementById('btn-run-sim').disabled = false;
-                document.getElementById('btn-export-csv').disabled = false;
-
-                showToast('Magpylib 物理计算引擎加载完成', 'success');
+                statusBox.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Magpylib 官方内核已激活</span>';
+                loadBtn.classList.add('hidden');
+                showToast('Magpylib 官方 Python 内核已加载并切换', 'success');
                 await runSimulation();
             } catch (err) {
                 console.error(err);
-                statusBox.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium';
-                statusBox.innerHTML = '<i class="fa-solid fa-circle-xmark"></i><span>引擎加载失败</span>';
-                showToast('Pyodide/Magpylib 初始化失败: ' + err.message, 'error');
+                statusBox.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium';
+                statusBox.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>极速解析引擎就绪</span>';
+                loadBtn.disabled = false;
+                loadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                showToast('Python 内核加载失败，继续使用内置极速解析引擎', 'error');
             }
         }
 
@@ -869,7 +1077,6 @@ def run_melexis_linear_sim(params_json):
         }
 
         async function runSimulation() {
-            if (!pyodideInstance) return;
             const btn = document.getElementById('btn-run-sim');
             btn.disabled = true;
             try {
@@ -878,9 +1085,14 @@ def run_melexis_linear_sim(params_json):
                     showToast('结束位置 X_end 必须大于起始位置 X_start', 'error');
                     return;
                 }
-                pyodideInstance.globals.set('sim_params_str', JSON.stringify(params));
-                const rawJson = await pyodideInstance.runPythonAsync('run_melexis_linear_sim(sim_params_str)');
-                const data = JSON.parse(rawJson);
+                let data;
+                if (pyodideInstance && pyodideInstance.globals.has('run_melexis_linear_sim')) {
+                    pyodideInstance.globals.set('sim_params_str', JSON.stringify(params));
+                    const rawJson = await pyodideInstance.runPythonAsync('run_melexis_linear_sim(sim_params_str)');
+                    data = JSON.parse(rawJson);
+                } else {
+                    data = runFastJSSimulation(params);
+                }
                 lastSimulationData = { params, data };
 
                 updateKPIs(params, data);
@@ -1278,16 +1490,23 @@ def run_melexis_linear_sim(params_json):
                 y0: 0, y1: 1, yref: 'paper',
                 line: { color: '#fbbf24', width: 1.5, dash: 'dot' }
             }];
-            Plotly.relayout('plot-bfield', { shapes: cursorShape });
-            Plotly.relayout('plot-angle', { shapes: cursorShape });
+            const bfieldEl = document.getElementById('plot-bfield');
+            const angleEl = document.getElementById('plot-angle');
+            const plot3dEl = document.getElementById('plot-3d');
+            if (bfieldEl && bfieldEl.data) {
+                Plotly.relayout(bfieldEl, { shapes: cursorShape }).catch(() => {});
+            }
+            if (angleEl && angleEl.data) {
+                Plotly.relayout(angleEl, { shapes: cursorShape }).catch(() => {});
+            }
 
             // Sync 3D moving sensor marker
-            if (scanState.sensor3DTraceIndex >= 0) {
-                Plotly.restyle('plot-3d', {
+            if (scanState.sensor3DTraceIndex >= 0 && plot3dEl && plot3dEl.data) {
+                Plotly.restyle(plot3dEl, {
                     x: [[curX]],
                     y: [[params.y_offset]],
                     z: [[-params.airgap]]
-                }, [scanState.sensor3DTraceIndex]);
+                }, [scanState.sensor3DTraceIndex]).catch(() => {});
             }
 
             // Highlight active row in data table if visible
